@@ -1,0 +1,109 @@
+(1)序列前向选择( SFS , Sequential Forward Selection )
+    算法描述：特征子集X从空集开始，每次选择一个特征x加入特征子集X，使得特征函数J( X)最优。简单说就是，每次都选择一个使得评价函数的取值达到最优的特征加入，其实就是一种简单的贪心算法。
+    算法评价：缺点是只能加入特征而不能去除特征。例如：特征A完全依赖于特征B与C，可以认为如果加入了特征B与C则A就是多余的。假设序列前向选择算法首先将A加入特征集，然后又将B与C加入，那么特征子集中就包含了多余的特征A。
+
+(2)序列后向选择( SBS , Sequential Backward Selection )
+    算法描述：从特征全集O开始，每次从特征集O中剔除一个特征x，使得剔除特征x后评价函数值达到最优。
+    算法评价：序列后向选择与序列前向选择正好相反，它的缺点是特征只能去除不能加入。
+另外，SFS与SBS都属于贪心算法，容易陷入局部最优值。
+
+# -*- coding: utf-8 -*-
+'''
+@summary: 特征选择-序列后向选择算法(Sequential Backward Selection,SBS)
+'''
+import pandas as pd
+import numpy as np
+import time
+from sklearn.cross_validation import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.base import clone
+from itertools import combinations
+from sklearn.metrics import accuracy_score
+from sklearn.neighbors import KNeighborsClassifier
+import matplotlib.pyplot as plt
+#SBS类
+class SBS(object):
+    def __init__(self,estimator,k_features,scoring=accuracy_score,test_size=0.2,random_state=1):
+        self.scoring=scoring
+        self.estimator=clone(estimator)
+        self.k_features=k_features
+        self.test_size=test_size
+        self.random_state=random_state
+        
+    def fit(self,X,y):
+        X_train,X_test,y_train,y_test=train_test_split(X,y,test_size=self.test_size,random_state=self.random_state)
+        dim=X_train.shape[1]
+        self.indices_=tuple(range(dim))
+        self.subsets_=[self.indices_]
+        score=self._calc_score(X_train,X_test,y_train,y_test,self.indices_)
+        self.scores_=[score]
+        while dim>self.k_features:
+            scores=[]
+            subsets=[]
+            for p in combinations(self.indices_,r=dim-1):
+                score=self._calc_score(X_train,X_test,y_train,y_test,p)
+                scores.append(score)
+                subsets.append(p)
+            best=np.argmax(scores)
+            self.indices_=subsets[best]
+            self.subsets_.append(self.indices_)
+            dim-=1
+            self.scores_.append(scores[best])
+        self.k_score_=self.scores_[-1]
+        return self
+    
+    def transform(self,X):
+        return X[:,self.indices_]
+    
+    def _calc_score(self,X_train,X_test,y_train,y_test,indices):
+        self.estimator.fit(X_train[:,indices],y_train)
+        y_pred=self.estimator.predict(X_test[:,indices])
+        score=self.scoring(y_test,y_pred)
+        return score
+        
+if __name__ == "__main__":   
+    start = time.clock() 
+    #导入数据
+    df_wine = pd.read_csv('https://archive.ics.uci.edu/ml/machine-learning-databases/wine/wine.data',header=None)
+    df_wine.columns=['Class label','Alcohol','Malic acid','Ash','Alcalinity of ash','Magnesium','Total phenols','Flavanoids','Nonflavanoid phenols','Proanthocyanins','Color intensity','Hue','OD280/OD315 of diluted wines','Proline']
+    X,y=df_wine.iloc[:,1:].values,df_wine.iloc[:,0].values
+    X_train,X_test,y_train,y_test=train_test_split(X,y,test_size=0.2,random_state=0)
+    stdsc=StandardScaler()#标准化
+    X_train_std=stdsc.fit_transform(X_train)
+    X_test_std=stdsc.fit_transform(X_test)
+    #SBS训练
+    knn=KNeighborsClassifier(n_neighbors=2)
+    sbs=SBS(knn,k_features=1)
+    sbs.fit(X_train_std,y_train)
+    k_feat=[len(k) for k in sbs.subsets_]
+    plt.plot(k_feat,sbs.scores_,marker='o')
+    plt.ylim([0.7,1.1])
+    plt.ylabel('Accuracy')
+    plt.xlabel('Number of features')
+    plt.grid()
+    plt.show()
+    
+    #在原始特征上的训练
+    knn.fit(X_train_std,y_train)
+    print ('Training accuracy:',knn.score(X_train_std,y_train))
+    print ('Test accuracy:',knn.score(X_test_std,y_test)) #存在过拟合
+    #选定SBS得到的最好5个特征来比较
+    k5=list(sbs.subsets_[8])
+    print (df_wine.columns[1:][k5])
+    knn.fit(X_train_std[:,k5],y_train)
+    print ('Training accuracy:',knn.score(X_train_std[:,k5],y_train))
+    print ('Test accuracy:',knn.score(X_test_std[:,k5],y_test)) #过拟合得到缓解
+ 
+    end = time.clock()    
+    print('finish all in %s' % str(end - start)) 
+    
+输出结果为：
+('Training accuracy:', 0.9859154929577465)
+('Test accuracy:', 0.91666666666666663)
+Index([u'Alcohol', u'Malic acid', u'Ash', u'Color intensity', u'Proline'], dtype='object')
+('Training accuracy:', 0.95070422535211263)
+('Test accuracy:', 0.97222222222222221)
+finish all in 21.7107086315
+
+参考：http://www.aibbt.com/a/21127.html
+
